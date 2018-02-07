@@ -417,6 +417,9 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
                 }
 
             	SmbFiles.copy(localTempfile, share, path, true);
+                // We completed without any exceptions, make sure we don't repeat  
+                retry=retryMax;
+
             }
             catch(Exception e) {
             	throw e;
@@ -461,6 +464,7 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
 				}
         	}        	
         }
+        
         }
               
         
