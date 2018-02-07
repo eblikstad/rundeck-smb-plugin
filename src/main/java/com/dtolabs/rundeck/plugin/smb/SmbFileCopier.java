@@ -16,16 +16,18 @@ import com.dtolabs.rundeck.core.execution.workflow.steps.StepFailureReason;
 import com.dtolabs.rundeck.core.plugins.Plugin;
 import com.dtolabs.rundeck.core.plugins.configuration.Describable;
 import com.dtolabs.rundeck.core.plugins.configuration.Description;
+import com.dtolabs.rundeck.core.plugins.configuration.PropertyUtil;
 import com.dtolabs.rundeck.core.plugins.configuration.StringRenderingConstants;
 import com.dtolabs.rundeck.core.storage.ResourceMeta;
 import com.dtolabs.rundeck.core.tasks.net.SSHTaskBuilder;
 import com.dtolabs.rundeck.core.plugins.configuration.ConfigurationException;
 import com.dtolabs.rundeck.plugins.util.DescriptionBuilder;
 import com.dtolabs.rundeck.plugins.util.PropertyBuilder;
-
+import com.hierynomus.ntlm.messages.WindowsVersion;
 import com.hierynomus.smbj.SMBClient;
 import com.hierynomus.smbj.auth.AuthenticationContext;
 import com.hierynomus.smbj.connection.Connection;
+import com.hierynomus.smbj.connection.ConnectionInfo;
 import com.hierynomus.smbj.session.Session;
 import com.hierynomus.smbj.share.DiskShare;
 import com.hierynomus.smbj.utils.SmbFiles;
@@ -58,24 +60,36 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
     public static final String SERVICE_PROVIDER_TYPE = "smb";
     private static final String CONFIG_PASSWORD_STORAGE_PATH = "passwordStoragePath";
     public static final String SMB_PASSWORD_STORAGE_PATH = "smb-password-storage-path";
+    public static final String SMB_RETRY_MAX = "smb-retry-max";
+    public static final String SMB_RETRY_DELAY = "smb-retry-delay";
+    
     public static final String SMB_USER = "smb-user";
 
     
     private static final String PROJ_PROP_PREFIX = "project.";
     private static final String FWK_PROP_PREFIX = "framework.";
 
+    //Config properties for GUI
+    private static final String CONFIG_RETRY_MAX = "retry-max";
+    private static final String CONFIG_RETRY_DELAY = "retry-delay";
 
+    public static final int DEFAULT_SMB_RETRY_MAX = 3; 
+    public static final int DEFAULT_SMB_RETRY_DELAY = 15; 
+    
     static final Description DESC = DescriptionBuilder.builder()
         .name(SERVICE_PROVIDER_TYPE)
         .title("SMB")
         .description("Copies a script file to a remote node via SMB.")
+        .property(PropertyUtil.longProp(CONFIG_RETRY_MAX, "SMB retry maximum attempts", "The maximum number of retries, " + 
+                "in case of intermittent transport errors. Default: 3.", false, null)) 
+        .property(PropertyUtil.longProp(CONFIG_RETRY_DELAY, "SMB retry delay", "The retry delay, " + 
+                "in seconds. Default: 5 (seconds).", false, null)) 
         .property(
                 PropertyBuilder.builder()
                                .string(CONFIG_PASSWORD_STORAGE_PATH)
-                               .title("Password Storage")
+                               .title("SMB Password Storage Path")
                                .description(
-                                       "Key Storage Path for winrm Password.\n\n" +
-                                       "The path can contain property references like `${node.name}`."
+                            		   "Path to the Password to use within Rundeck Storage. E.g. \"keys/path/my.password\". Can be overridden by a Node attribute named 'ssh-password-storage-path'."
                                )
                                .renderingOption(
                                        StringRenderingConstants.SELECTION_ACCESSOR_KEY,
@@ -91,7 +105,12 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
                                )
                                .build()
       )
-        .mapping(CONFIG_PASSWORD_STORAGE_PATH, PROJ_PROP_PREFIX + SMB_PASSWORD_STORAGE_PATH)
+        .mapping(CONFIG_PASSWORD_STORAGE_PATH, FWK_PROP_PREFIX + SMB_PASSWORD_STORAGE_PATH)
+        .mapping(CONFIG_PASSWORD_STORAGE_PATH, PROJ_PROP_PREFIX + SMB_PASSWORD_STORAGE_PATH)        
+        .mapping(CONFIG_RETRY_MAX, FWK_PROP_PREFIX + SMB_RETRY_MAX)
+        .mapping(CONFIG_RETRY_MAX, PROJ_PROP_PREFIX + SMB_RETRY_MAX)        
+        .mapping(CONFIG_RETRY_DELAY, FWK_PROP_PREFIX + SMB_RETRY_DELAY)
+        .mapping(CONFIG_RETRY_DELAY, PROJ_PROP_PREFIX + SMB_RETRY_DELAY)        
         .build();
 
 
@@ -107,6 +126,7 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
     private Framework framework;
     private String frameworkProject;
 
+    
     public Framework getFramework() {
         return framework;
     }
@@ -123,6 +143,27 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
             return input.trim();
         }
     }
+
+    private static int resolveIntProperty( 
+            final String attribute, 
+            final int defaultValue, 
+            final INodeEntry iNodeEntry, 
+            final String frameworkProject, 
+            final Framework framework 
+    ) throws ConfigurationException 
+    { 
+        int value = defaultValue; 
+        final String string = resolveProperty(attribute, null, iNodeEntry, frameworkProject, framework); 
+        if (null != string) { 
+            try { 
+                value = Integer.parseInt(string); 
+            } catch (NumberFormatException e) { 
+                throw new ConfigurationException("Not a valid integer: " + attribute + ": " + string); 
+            } 
+        } 
+        return value; 
+    } 
+    
     /**
      * Resolve a node/project/framework property by first checking node attributes named X, then project properties
      * named "project.X", then framework properties named "framework.X". If none of those exist, return the default
@@ -191,7 +232,6 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
         final String user;
         if (null != nonBlank(node.getUsername()) || node.containsUserName()) {
             user = nonBlank(node.getUsername());
-            System.err.println("getUsername not null");
 
         } else {
             System.err.println("get smb-user");
@@ -201,17 +241,14 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
         //if (null != user && user.contains("${")) {
         //    return DataContextUtils.replaceDataReferences(user, getContext().getDataContext());
         //}
-        System.err.println("user: " + user);
         return user;
     }
     
     private String getPassword(final ExecutionContext context, final INodeEntry node)  throws ConfigurationException{
         //look for storage option
-        System.err.println("resolveProperty: SMB_PASSWORD_STORAGE_PATH");
     	
         String storagePath = resolveProperty(SMB_PASSWORD_STORAGE_PATH, null,
                 node, getFrameworkProject(), getFramework());
-        System.err.println("storagePath: " + storagePath);
         if(null!=storagePath){
             //look up storage value
             if (storagePath.contains("${")) {
@@ -221,7 +258,6 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
                 );
             }
             Path path = PathUtil.asPath(storagePath);
-            System.err.println("path: " + path.getPath());
             
             try {
                 ResourceMeta contents = context.getStorageTree().getResource(path)
@@ -277,7 +313,8 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
 
         
         
-
+        String logprompt = "[" + SERVICE_PROVIDER_TYPE + ":" + node.getNodename() + "] ";
+        
         String username;
         String domain = null;
         username = getUsername(node);
@@ -300,7 +337,17 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
             System.err.println("ouch");        	
         }
 
-
+        int retryMax = 0;
+        int retryDelay = 0;
+        try {
+        	retryMax = resolveIntProperty(SMB_RETRY_MAX, DEFAULT_SMB_RETRY_MAX, node, 
+                getFrameworkProject(), getFramework()); 
+        	retryDelay = resolveIntProperty(SMB_RETRY_DELAY, DEFAULT_SMB_RETRY_DELAY, node, 
+                getFrameworkProject(), getFramework()); 
+        }
+        catch(Exception e) {
+        	throw new FileCopierException("SMB file copy failed.", Reason.CopyFileFailed, e);
+        }
         /**
          * Copy the file over
          */
@@ -342,8 +389,13 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
         SMBClient client = new SMBClient();
         Connection connection = null;
         Session session = null;
+        for(int retry=0;retry<=retryMax;retry++) {        
         try {
         	connection = client.connect(node.getHostname());
+        	ConnectionInfo info = connection.getConnectionInfo();
+            context.getExecutionListener().log(3,logprompt + "ConnectionInfo.ServerName = " + info.getServerName());
+            context.getExecutionListener().log(3,logprompt + "ConnectionInfo.NegotiatedProtocol = " + info.getNegotiatedProtocol().getDialect().toString());
+        	
             AuthenticationContext ac = new AuthenticationContext(username, password.toCharArray(), domain);
             session = connection.authenticate(ac);
 
@@ -376,7 +428,22 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
 				}
             }
 
-        }        
+        }   
+        catch(com.hierynomus.protocol.transport.TransportException e) {
+        	// Retry operation
+        	if(retry==retryMax) {
+                throw new FileCopierException("SMB file copy failed.", Reason.CopyFileFailed, e);        	        	        		
+        	}
+        	else {
+                context.getExecutionListener().log(Constants.WARN_LEVEL,logprompt + "Retrying SMB file copy.");
+        		try {
+					Thread.sleep(retryDelay * 1000);
+				} catch (InterruptedException e1) {
+				}
+        	}
+        		
+        }
+        
         catch(Exception e) {
             throw new FileCopierException("SMB file copy failed.", Reason.CopyFileFailed, e);        	
         }
@@ -394,7 +461,7 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
 				}
         	}        	
         }
-        
+        }
               
         
         if (!localTempfile.delete()) {

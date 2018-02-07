@@ -57,7 +57,7 @@
           </descriptors>
           <archive>
             <manifestEntries>
-              <Rundeck-Plugin-Version>0.1.0</Rundeck-Plugin-Version>
+              <Rundeck-Plugin-Version>1.2</Rundeck-Plugin-Version>
               <Rundeck-Plugin-File-Version>0.1.0</Rundeck-Plugin-File-Version>
               <Rundeck-Plugin-Archive>true</Rundeck-Plugin-Archive>
               <Rundeck-Plugin-Classnames>com.dtolabs.rundeck.plugin.smb.SmbFileCopier</Rundeck-Plugin-Classnames>
