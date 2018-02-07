@@ -99,6 +99,10 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
         return DESC;
     }
 
+    public static enum Reason implements FailureReason {
+        CopyFileFailed,
+    }
+
 
     private Framework framework;
     private String frameworkProject;
@@ -277,29 +281,23 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
         String username;
         String domain = null;
         username = getUsername(node);
-        System.err.println("112 username: " + username);
         if(username.contains("\\")) {
         	domain = username.split("\\")[0];
-            System.err.println("112 domain: " + username);
         	username = username.split("\\")[1];
         }
         else if(username.contains("@")) {
         	domain = username.split("@")[1];        	
-            System.err.println("112 username: " + username);
         	username = username.split("@")[0];
-            System.err.println("112 domain: " + domain);
         }
 
         
         String password = null;
         
         frameworkProject = context.getFrameworkProject();
-        System.err.println("try password");
         try{
         password = getPassword(context, node);
         }catch(ConfigurationException E){
-            System.err.println("ouch");
-        	
+            System.err.println("ouch");        	
         }
 
 
@@ -309,25 +307,95 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
         context.getExecutionListener().log(3,"copying file: '" + localTempfile.getAbsolutePath()
                 + "' to: '" + node.getNodename() + ":" + remotefile + "'");
 
-        SMBClient client = new SMBClient();        
+        // Parse the remote file path
+        String shareName = null;
+        String path = "";
+        for(int i=0;i<remotefile.split("\\\\").length;i++) {
+        	String element = remotefile.split("\\\\")[i];
+        	if(i==0) {
+        		// First element of path is a Windows drive letter
+        		if(element.length() != 2) {
+        			throw new IllegalArgumentException("Invalid path root length."); 
+        		}
+        		if(!element.endsWith(":")) {
+        			throw new IllegalArgumentException("Invalid path syntax."); 
+        		}
+        		char c = element.charAt(0);
+        		if (!(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z')){
+        			throw new IllegalArgumentException("Invalid path drive letter.");         			
+        		}
+        		shareName = Character.toString(c) + "$";
+        	}
+        	else if(i!=(remotefile.split("\\\\").length-1)) {
+        		// Successive elements of path are directories
+        		path += element + "\\";
+        	}
+        	else {
+        		// Last element of path is the filename
+        		path += element;
+        	}
+        		
+        }
+
         
-        try (Connection connection = client.connect(node.getHostname())) {
+        
+        SMBClient client = new SMBClient();
+        Connection connection = null;
+        Session session = null;
+        try {
+        	connection = client.connect(node.getHostname());
             AuthenticationContext ac = new AuthenticationContext(username, password.toCharArray(), domain);
-            Session session = connection.authenticate(ac);
+            session = connection.authenticate(ac);
 
             // Connect to Share
-            try (DiskShare share = (DiskShare) session.connectShare(remotefile.substring(0, 1) + "$")) {
-            	SmbFiles.copy(localTempfile, share, remotefile.substring(3), true);            	
+       		DiskShare share = null;
+            try {
+            	share = (DiskShare) session.connectShare(shareName);
+
+            	// Parse the remote path and create missing directories
+            	String testPath = "";
+                for(int i=0;i<path.split("\\\\").length-1;i++) {
+                	String element = path.split("\\\\")[i];
+               		testPath += element;
+               		if(!share.folderExists(testPath)) {
+               			// Directory does not exist, create
+               			share.mkdir(testPath);
+               		}
+               		testPath += "\\";                		                	
+                }
+
+            	SmbFiles.copy(localTempfile, share, path, true);
             }
             catch(Exception e) {
-            	
+            	throw e;
             }
+            finally {
+        		try {
+					share.close();
+				} catch (IOException e) {
+				}
+            }
+
         }        
         catch(Exception e) {
-        	
+            throw new FileCopierException("SMB file copy failed.", Reason.CopyFileFailed, e);        	
+        }
+        finally {
+        	if(session != null) {
+        		try {
+					session.close();
+				} catch (IOException e) {
+				}
+        	}        	
+        	if(connection != null) {
+        		try {
+					connection.close();
+				} catch (IOException e) {
+				}
+        	}        	
         }
         
-                
+              
         
         if (!localTempfile.delete()) {
             context.getExecutionListener().log(Constants.WARN_LEVEL,

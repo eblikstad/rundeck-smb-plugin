@@ -8,7 +8,7 @@
   </parent>
   <groupId>org.rundeck-plugins</groupId>
   <artifactId>rundeck-smb-plugin</artifactId>
-  <version>1.0.0</version>
+  <version>0.1.0</version>
   <name>Rundeck SMB FileCopier Plugin</name>
   <url>http://rundeck.org</url>
   <inceptionYear>2011</inceptionYear>
@@ -57,11 +57,11 @@
           </descriptors>
           <archive>
             <manifestEntries>
-              <Rundeck-Plugin-Version>1.1</Rundeck-Plugin-Version>
-              <Rundeck-Plugin-File-Version>1.0</Rundeck-Plugin-File-Version>
+              <Rundeck-Plugin-Version>0.1.0</Rundeck-Plugin-Version>
+              <Rundeck-Plugin-File-Version>0.1.0</Rundeck-Plugin-File-Version>
               <Rundeck-Plugin-Archive>true</Rundeck-Plugin-Archive>
               <Rundeck-Plugin-Classnames>com.dtolabs.rundeck.plugin.smb.SmbFileCopier</Rundeck-Plugin-Classnames>
-              <Rundeck-Plugin-Libs>lib/smbj-0.6.0.jar</Rundeck-Plugin-Libs>
+              <Rundeck-Plugin-Libs>lib/smbj-0.6.0.jar lib/bcprov-jdk15on-1.57.jar lib/mbassador-1.3.0.jar</Rundeck-Plugin-Libs>
             </manifestEntries>
           </archive>
         </configuration>
