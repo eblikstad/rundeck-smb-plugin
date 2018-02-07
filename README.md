@@ -4,6 +4,7 @@ This Rundeck plugin supports Microsoft Windows nodes. It uses the smbj native Ja
 Features
 =====
 * SMB version 2
+* SMB signing
 * Explicit authentication
 * Configurable retry on transport error
 
