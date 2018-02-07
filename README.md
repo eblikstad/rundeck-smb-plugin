@@ -1,5 +1,5 @@
 # rundeck-smb-plugin - Rundeck File Copier Plugin
-This Rundeck plugin supports Microsoft Windows nodes. It implements the smbj native Java SMBv2 client which is platform independent.
+This Rundeck plugin supports Microsoft Windows nodes. It implements the smbj native Java SMBv2 client library and is platform independent.
 
 Features
 =====
