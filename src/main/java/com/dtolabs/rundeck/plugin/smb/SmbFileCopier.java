@@ -432,7 +432,7 @@ public class SmbFileCopier extends BaseFileCopier implements FileCopier, Describ
             }
 
         }   
-        catch(com.hierynomus.protocol.transport.TransportException e) {
+        catch(com.hierynomus.protocol.transport.TransportException | java.net.SocketTimeoutException | java.net.ConnectException e) {
         	// Retry operation
         	if(retry==retryMax) {
                 throw new FileCopierException("SMB file copy failed.", Reason.CopyFileFailed, e);        	        	        		

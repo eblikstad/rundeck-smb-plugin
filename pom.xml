@@ -8,7 +8,7 @@
   </parent>
   <groupId>org.rundeck-plugins</groupId>
   <artifactId>rundeck-smb-plugin</artifactId>
-  <version>0.1.0</version>
+  <version>0.1.1</version>
   <name>Rundeck SMB FileCopier Plugin</name>
   <url>http://rundeck.org</url>
   <inceptionYear>2011</inceptionYear>
